@@ -327,7 +327,7 @@ class LunarCaptionGenerator:
         successful_count = 0
         for i in range(num_samples):
             try:
-                print(f"Processing sample {i+1}/{num_samples}...", end=" ")
+                print(f"Processing sample {i + 1}/{num_samples}...", end=" ")
 
                 # Get sample from dataset
                 sample = dataset[i]
@@ -368,7 +368,7 @@ class LunarCaptionGenerator:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(all_results, f, indent=2, ensure_ascii=False)
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Processing complete!")
         print(f"Successfully generated: {successful_count}/{num_samples} captions")
         print(f"Results saved to: {filepath}")
