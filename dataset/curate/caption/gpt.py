@@ -1,14 +1,16 @@
+"""
+Lunar Surface Caption Generator using GPT-4 Vision
+
+This module provides classes and functions to generate scientific captions for lunar surface imagery
+using OpenAI's GPT-4 Vision API. It processes multimodal datasets containing panchromatic, gravity,
+and slope data.
+"""
+
 import os
 import base64
-import json
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union
-import numpy as np
-import torch
 from PIL import Image
 from openai import OpenAI
-from lumina_dataset import LUMINADataset, create_split_datasets
 
 
 BASE_PROMPT = """
@@ -55,17 +57,14 @@ class LunarCaptionGenerator:
     A class to generate scientific captions for lunar surface imagery using OpenAI's GPT-4 Vision.
     """
 
-    def __init__(self, api_key: str, output_dir: str = "outputs"):
+    def __init__(self, api_key: str):
         """
         Initialize the caption generator.
 
         Args:
             api_key: OpenAI API key
-            output_dir: Directory to save output JSON files
         """
         self.client = OpenAI(api_key=api_key)
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(exist_ok=True)
 
         self.system_prompt = (
             "You are a lunar surface scientist with expertise in remote sensing and planetary geology. "
@@ -76,56 +75,70 @@ class LunarCaptionGenerator:
             "Do *not* mention the words 'positive', 'negative', 'anomaly'"
         )
 
-    def tensor_to_pil(self, tensor: torch.Tensor) -> Image.Image:
+    def get_available_models(self) -> list:
         """
-        Convert a PyTorch tensor to PIL Image.
-
-        Args:
-            tensor: Input tensor of shape (C, H, W) with values in [0, 1] or [0, 255]
+        Get list of all available OpenAI models.
 
         Returns:
-            PIL Image
+            List of available model names
         """
-        if tensor.dim() == 3:
-            # Convert from (C, H, W) to (H, W, C)
-            tensor = tensor.permute(1, 2, 0)
+        try:
+            models = self.client.models.list()
+            available_models = []
+            for m in models.data:
+                available_models.append(m.id)
 
-        # Normalize to [0, 255] if needed
-        if tensor.max() <= 1.0:
-            tensor = tensor * 255
+            # Sort and return unique models
+            return sorted(list(set(available_models)))
+        except Exception as e:
+            raise ValueError(f"Warning: Could not fetch available models: {e}")
 
-        # Convert to numpy array and ensure uint8
-        array = tensor.cpu().numpy().astype(np.uint8)
-
-        # Handle grayscale and RGB
-        if array.shape[-1] == 1:
-            array = array.squeeze(-1)
-            return Image.fromarray(array, mode="L")
-        else:
-            return Image.fromarray(array, mode="RGB")
-
-    def encode_tensor_image(self, tensor: torch.Tensor) -> str:
+    def validate_model(self, model: str) -> bool:
         """
-        Encode a PyTorch tensor as base64 image for OpenAI API.
+        Validate if the specified model is available.
 
         Args:
-            tensor: Input tensor representing an image
+            model: Model name to validate
+
+        Returns:
+            True if model is valid, False otherwise
+        """
+        available_models = self.get_available_models()
+        if model in available_models:
+            return True
+
+        print(f"Error: Model '{model}' not found in available models.")
+
+        # Show vision-capable models as recommendations
+        vision_models = [
+            m
+            for m in available_models
+            if any(pattern in m for pattern in ["gpt-4", "gpt-4o", "gpt-4-vision"])
+        ]
+        if vision_models:
+            print(
+                f"Some available models: {', '.join(vision_models[:5])}"
+            )  # Show first 5
+
+        print(f"Total available models: {len(available_models)}")
+        print("Use --list-models to see all available models.")
+        return False
+
+    def encode_pil_image(self, pil_image: Image.Image) -> str:
+        """
+        Encode a PIL Image as base64 for OpenAI API.
+
+        Args:
+            pil_image: PIL Image to encode
 
         Returns:
             Base64 encoded image string
         """
-        # Convert tensor to PIL Image
-        pil_image = self.tensor_to_pil(tensor)
-
-        # Save to bytes buffer
         from io import BytesIO
 
         buffer = BytesIO()
         pil_image.save(buffer, format="PNG")
         buffer.seek(0)
-
-        # Encode to base64
-        import base64
 
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
@@ -145,86 +158,83 @@ class LunarCaptionGenerator:
         with open(image_path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode("utf-8")
 
-    def generate_caption_from_tensors(
+    def generate_caption_from_images(
         self,
-        pancro_tensor: torch.Tensor,
-        gravity_tensor: torch.Tensor,
-        slope_tensor: torch.Tensor,
-        identifier: str,
-    ) -> dict:
+        pancro_image: Image.Image,
+        gravity_image: Image.Image,
+        slope_image: Image.Image,
+        model: str = "gpt-4o",
+        temperature: float = 0.3,
+    ) -> str:
         """
-        Generate a scientific caption from PyTorch tensors.
+        Generate a scientific caption from PIL Images.
 
         Args:
-            pancro_tensor: Panchromatic image tensor
-            gravity_tensor: Gravity anomaly tensor
-            slope_tensor: Slope map tensor
-            identifier: Unique identifier for the dataset
+            pancro_image: Panchromatic PIL image
+            gravity_image: Gravity anomaly PIL image
+            slope_image: Slope map PIL image
+            model: OpenAI model name to use for caption generation
+            temperature: Temperature for text generation (0.0-2.0)
 
         Returns:
-            Dictionary containing the generated caption and metadata
+            Generated caption as string, or None if failed
         """
         try:
             # Encode all images as base64
-            encoded_pancro = self.encode_tensor_image(pancro_tensor)
-            encoded_gravity = self.encode_tensor_image(gravity_tensor)
-            encoded_slope = self.encode_tensor_image(slope_tensor)
+            encoded_pancro = self.encode_pil_image(pancro_image)
+            encoded_gravity = self.encode_pil_image(gravity_image)
+            encoded_slope = self.encode_pil_image(slope_image)
 
             # Prepare message content
             message_content = [
                 {"type": "text", "text": BASE_PROMPT.strip()},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encoded_pancro}"},
-                },  # Panchro
+                    "image_url": {"url": f"data:image/png;base64,{encoded_gravity}"},
+                },  # Gravity (image 1)
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encoded_gravity}"},
-                },  # Gravity
+                    "image_url": {"url": f"data:image/png;base64,{encoded_pancro}"},
+                },  # Panchro (image 2)
                 {
                     "type": "image_url",
                     "image_url": {"url": f"data:image/png;base64,{encoded_slope}"},
-                },  # Slope
+                },  # Slope (image 3)
             ]
 
             # Make API call
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=model,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": message_content},
                 ],
-                temperature=0.3,
+                temperature=temperature,
                 max_tokens=300,
             )
 
             caption = response.choices[0].message.content.strip()
-
-            # Prepare result dictionary
-            result = {
-                "identifier": identifier,
-                "caption": caption,
-                "metadata": {
-                    "timestamp": datetime.now().isoformat(),
-                    "model": "gpt-4o",
-                    "temperature": 0.3,
-                    "word_count": len(caption.split()),
-                },
-            }
-
-            return result
+            return caption
 
         except Exception as e:
-            print(f"Error generating caption for {identifier}: {e}")
+            print(f"Error generating caption: {e}")
             return None
 
-    def generate_caption(self, image_paths: list, identifier: str = None) -> dict:
+    def generate_caption(
+        self,
+        image_paths: list,
+        identifier: str = None,
+        model: str = "gpt-4o",
+        temperature: float = 0.3,
+    ) -> dict:
         """
         Generate a scientific caption for a set of lunar images (legacy method for file paths).
 
         Args:
-            image_paths: List of paths to [panchromatic, gravity, slope] images
+            image_paths: List of paths to [panchromatic, gravity, slope] images (will be reordered to match prompt: gravity, panchromatic, slope)
             identifier: Optional custom identifier for the dataset
+            model: OpenAI model name to use for caption generation
+            temperature: Temperature for text generation (0.0-2.0)
 
         Returns:
             Dictionary containing the generated caption and metadata
@@ -245,26 +255,26 @@ class LunarCaptionGenerator:
                 {"type": "text", "text": BASE_PROMPT.strip()},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encoded_images[0]}"},
-                },  # Panchro
+                    "image_url": {"url": f"data:image/png;base64,{encoded_images[1]}"},
+                },  # Gravity (image 1)
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encoded_images[1]}"},
-                },  # Gravity
+                    "image_url": {"url": f"data:image/png;base64,{encoded_images[0]}"},
+                },  # Panchro (image 2)
                 {
                     "type": "image_url",
                     "image_url": {"url": f"data:image/png;base64,{encoded_images[2]}"},
-                },  # Slope
+                },  # Slope (image 3)
             ]
 
             # Make API call
             response = self.client.chat.completions.create(
-                model="gpt-4o",
+                model=model,
                 messages=[
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": message_content},
                 ],
-                temperature=0.3,
+                temperature=temperature,
                 max_tokens=300,
             )
 
@@ -275,9 +285,7 @@ class LunarCaptionGenerator:
                 "identifier": identifier,
                 "caption": caption,
                 "metadata": {
-                    "timestamp": datetime.now().isoformat(),
-                    "model": "gpt-4o",
-                    "temperature": 0.3,
+                    "temperature": temperature,
                     "word_count": len(caption.split()),
                 },
             }
@@ -287,93 +295,6 @@ class LunarCaptionGenerator:
         except Exception as e:
             print(f"Error generating caption: {e}")
             return None
-
-    def process_lumina_dataset(
-        self,
-        dataset: "LUMINADataset",
-        max_samples: Optional[int] = None,
-        output_filename: str = None,
-    ) -> str:
-        """
-        Process an entire LUMINADataset and generate captions for all triplets.
-
-        Args:
-            dataset: LUMINADataset instance
-            max_samples: Maximum number of samples to process (None for all)
-            output_filename: Custom output filename (without extension)
-
-        Returns:
-            Path to the saved JSON file
-        """
-        total_samples = len(dataset)
-        num_samples = min(max_samples, total_samples) if max_samples else total_samples
-
-        print(
-            f"Processing {num_samples} samples from LUMINADataset (total: {total_samples})"
-        )
-
-        # Collect all results
-        all_results = {
-            "dataset_info": {
-                "total_samples": total_samples,
-                "processed_samples": num_samples,
-                "timestamp": datetime.now().isoformat(),
-                "model": "gpt-4o",
-            },
-            "captions": [],
-        }
-
-        # Process each sample
-        successful_count = 0
-        for i in range(num_samples):
-            try:
-                print(f"Processing sample {i + 1}/{num_samples}...", end=" ")
-
-                # Get sample from dataset
-                sample = dataset[i]
-
-                # Extract tensors
-                pancro_tensor = sample["pancro"]
-                gravity_tensor = sample["gravity"]
-                slope_tensor = sample["slope"]
-
-                # Create identifier from dataset index and tile info
-                # Get the actual tile and row_col info from the dataset
-                tile_name, row_col = dataset.common_index[i]
-                identifier = f"{tile_name}_{row_col}"
-
-                # Generate caption
-                result = self.generate_caption_from_tensors(
-                    pancro_tensor, gravity_tensor, slope_tensor, identifier
-                )
-
-                if result:
-                    all_results["captions"].append(result)
-                    successful_count += 1
-                    print(f"✓ Caption generated for {identifier}")
-                else:
-                    print(f"✗ Failed to generate caption for {identifier}")
-
-            except Exception as e:
-                print(f"✗ Error processing sample {i}: {e}")
-                continue
-
-        # Save all results to a single JSON file
-        if output_filename is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"lumina_captions_{timestamp}"
-
-        filepath = self.output_dir / f"{output_filename}.json"
-
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(all_results, f, indent=2, ensure_ascii=False)
-
-        print(f"\n{'=' * 60}")
-        print(f"Processing complete!")
-        print(f"Successfully generated: {successful_count}/{num_samples} captions")
-        print(f"Results saved to: {filepath}")
-
-        return str(filepath)
 
     def validate_image_paths(self, image_paths: list) -> bool:
         """
@@ -422,72 +343,3 @@ class LunarCaptionGenerator:
             identifier = filename
 
         return identifier
-
-    def save_result(self, result: dict, filename: str = None) -> str:
-        """
-        Save the caption result to a JSON file.
-
-        Args:
-            result: Dictionary containing caption and metadata
-            filename: Optional custom filename (without extension)
-
-        Returns:
-            Path to the saved file
-        """
-        if filename is None:
-            filename = f"caption_{result['identifier']}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-        filepath = self.output_dir / f"{filename}.json"
-
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-
-        print(f"Caption saved to: {filepath}")
-        return str(filepath)
-
-
-def main():
-    """Main function to run the caption generation."""
-    # Configuration
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    # Initialize caption generator
-    generator = LunarCaptionGenerator(api_key=api_key, output_dir="outputs")
-
-    # Option 1: Process LUMINADataset (recommended)
-    if LUMINADataset is not None:
-        print("Using LUMINADataset for processing...")
-
-        # Initialize the dataset (adjust paths as needed)
-        root_dir = "path/to/your/dataset"  # Change this to your dataset path
-        splits_file = "path/to/splits.json"  # Change this to your splits file
-
-        # You can process a specific split or the entire dataset
-        try:
-            # Create dataset instance
-            dataset = LUMINADataset(
-                root_dir=root_dir,
-                # split="train",  # Uncomment to process only training split
-                # splits_file=splits_file,  # Uncomment if using splits
-            )
-
-            # Process all samples (or limit with max_samples parameter)
-            result_file = generator.process_lumina_dataset(
-                dataset,
-                max_samples=10,  # Remove or set to None to process all samples
-                output_filename="lumina_captions_batch",
-            )
-
-            print(f"All captions saved to: {result_file}")
-
-        except Exception as e:
-            print(f"Error processing LUMINADataset: {e}")
-            print("Falling back to individual file processing...")
-            process_individual_files(generator)
-    else:
-        print("LUMINADataset not available, using individual file processing...")
-        process_individual_files(generator)
-
-
-if __name__ == "__main__":
-    main()

@@ -1,12 +1,11 @@
-import os
+import json
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, List, Union, Dict
-import json
+from typing import Dict, List, Optional, Union
 
+import matplotlib.pyplot as plt
 from PIL import Image
 from torch.utils.data import Dataset
-import matplotlib.pyplot as plt
 
 
 class UniModalLunarBaseDataset(Dataset, ABC):
@@ -91,8 +90,7 @@ class UniModalLunarBaseDataset(Dataset, ABC):
 
         # Load modality image
         modality_img_path = tile_path / self.get_modality_name() / f"{row_col}.png"
-        modality_image = Image.open(modality_img_path).convert("L")
-
+        modality_image = Image.open(modality_img_path).convert("RGB")
         if self.transform:
             modality_image = self.transform(modality_image)
 
@@ -139,10 +137,7 @@ class GravityDataset(UniModalLunarBaseDataset):
         }
 
 
-class LunarMultimodalDataset(UniModalLunarBaseDataset):
-    def get_modality_name(self):
-        return "all"
-
+class LunarMultimodalDataset(Dataset):
     def __init__(
         self,
         root_dir,
@@ -153,7 +148,7 @@ class LunarMultimodalDataset(UniModalLunarBaseDataset):
         """
         Lunar Multimodal Dataset
 
-        Dataset class to load all modalities (pancro, slope, gravity).
+        Dataset class to load all modalities (pancro, slope, gravity) using composition of single-modality datasets.
 
         Args:
             root_dir (str): Root directory of the dataset (e.g., 'spacedata').
@@ -161,49 +156,77 @@ class LunarMultimodalDataset(UniModalLunarBaseDataset):
             split (str, optional): Which split to use ('train', 'val', 'test'). If None, use all data.
             splits_file (str or Path, optional): Path to JSON file containing dataset splits.
         """
-        super().__init__(root_dir, transform, split, splits_file)
+        # Create individual dataset instances for each modality
+        self.pancro_dataset = PancroDataset(
+            root_dir=root_dir,
+            transform=transform,
+            split=split,
+            splits_file=splits_file,
+        )
 
-    def _build_index(self):
-        """Build a list of all (tile, row_col) tuples where data exists for all modalities."""
-        index = []
-        for tile_dir in sorted(self.root_dir.iterdir()):
-            if not tile_dir.is_dir():
-                continue
+        self.slope_dataset = SlopeDataset(
+            root_dir=root_dir,
+            transform=transform,
+            split=split,
+            splits_file=splits_file,
+        )
 
-            # Filter by allowed tiles if split is specified
-            if (
-                self.allowed_tiles is not None
-                and tile_dir.name not in self.allowed_tiles
-            ):
-                continue
+        self.gravity_dataset = GravityDataset(
+            root_dir=root_dir,
+            transform=transform,
+            split=split,
+            splits_file=splits_file,
+        )
 
-            # Ensure all modalities exist for the tile
-            modalities = ["pancro", "slope", "gravity"]
-            if not all((tile_dir / modality).exists() for modality in modalities):
-                continue
+        # Find common indices where all modalities are available
+        self._build_common_index()
 
-            for img_file in (tile_dir / "pancro").glob("r*_c*.png"):
-                row_col = img_file.stem  # e.g., 'r00_c01'
-                index.append((tile_dir.name, row_col))
-        return index
+    @property
+    def index(self):
+        """Return the common index for compatibility with gpt.py"""
+        return self.common_index
+
+    def _build_common_index(self):
+        """Build index of samples that exist in all three modality datasets."""
+        pancro_indices = set(self.pancro_dataset.index)
+        slope_indices = set(self.slope_dataset.index)
+        gravity_indices = set(self.gravity_dataset.index)
+
+        # Find intersection of all three datasets
+        common_indices = pancro_indices & slope_indices & gravity_indices
+        self.common_index = sorted(list(common_indices))
+
+        # Create mapping from common index to individual dataset indices
+        self.index_mapping = {}
+        for i, common_idx in enumerate(self.common_index):
+            self.index_mapping[i] = {
+                "pancro": self.pancro_dataset.index.index(common_idx),
+                "slope": self.slope_dataset.index.index(common_idx),
+                "gravity": self.gravity_dataset.index.index(common_idx),
+            }
+
+    def __len__(self):
+        return len(self.common_index)
 
     def __getitem__(self, idx):
-        tile_name, row_col = self.index[idx]
-        tile_path = self.root_dir / tile_name
+        if idx >= len(self.common_index):
+            raise IndexError(
+                f"Index {idx} out of range for dataset of size {len(self.common_index)}"
+            )
 
-        # Load modality images
-        modalities = {}
-        for modality in ["pancro", "slope", "gravity"]:
-            modality_img_path = tile_path / modality / f"{row_col}.png"
-            modality_image = Image.open(modality_img_path).convert("L")
-            if self.transform:
-                modality_image = self.transform(modality_image)
-            modalities[modality] = modality_image
+        # Get the mapped indices for each modality dataset
+        indices = self.index_mapping[idx]
 
+        # Get data from each modality dataset
+        pancro_sample = self.pancro_dataset[indices["pancro"]]
+        slope_sample = self.slope_dataset[indices["slope"]]
+        gravity_sample = self.gravity_dataset[indices["gravity"]]
+
+        # Combine all modalities
         return {
-            "pancro": modalities["pancro"],
-            "slope": modalities["slope"],
-            "gravity": modalities["gravity"],
+            "pancro": pancro_sample["pancro"],
+            "slope": slope_sample["slope"],
+            "gravity": gravity_sample["gravity"],
         }
 
 
@@ -232,7 +255,10 @@ def create_split_datasets(
     datasets = {}
     for split in ["train", "val", "test"]:
         datasets[split] = dataset_class(
-            root_dir=root_dir, transform=transform, split=split, splits_file=splits_file
+            root_dir=root_dir,
+            transform=transform,
+            split=split,
+            splits_file=splits_file,
         )
 
     return datasets
@@ -240,38 +266,43 @@ def create_split_datasets(
 
 if __name__ == "__main__":
     from torchvision import transforms
-    import numpy as np
 
     transform = transforms.ToTensor()
 
     # Example usage for a single modality
-    pancro_dataset = PancroDataset(root_dir="data/lumina/", transform=transform)
+    pancro_dataset = PancroDataset(root_dir="data/lumina", transform=transform)
     sample = pancro_dataset[0]
-    print("Pancro Dataset Sample:", sample["pancro"].size)
+
+    print("Pancro Dataset Sample:", sample["pancro"].size())
 
     # Example usage for all modalities
     multimodal_dataset = LunarMultimodalDataset(
-        root_dir="data/lumina/", transform=transform
+        root_dir="data/lumina", transform=transform
     )
     sample = multimodal_dataset[0]
-    print("Pancro image shape:", sample["pancro"])
-    print("Slope image shape:", sample["slope"])
-    print("Gravity image shape:", sample["gravity"])
+    print("Pancro image shape:", sample["pancro"].shape)
+    print("Slope image shape:", sample["slope"].shape)
+    print("Gravity image shape:", sample["gravity"].shape)
 
     # Sanity check: Visualize one sample image
     fig, axes = plt.subplots(1, 3, figsize=(12, 4))
 
-    axes[0].imshow(np.array(sample["pancro"]).squeeze(), cmap="gray")
+    # Convert tensors to numpy for grayscale images
+    pancro_img = sample["pancro"].squeeze().numpy()
+    slope_img = sample["slope"].squeeze().numpy()
+    gravity_img = sample["gravity"].squeeze().numpy()
+
+    axes[0].imshow(pancro_img, cmap="gray")
     axes[0].set_title("Pancro")
 
-    axes[1].imshow(np.array(sample["slope"]).squeeze(), cmap="gray")
+    axes[1].imshow(slope_img, cmap="gray")
     axes[1].set_title("Slope")
 
-    axes[2].imshow(np.array(sample["gravity"]).squeeze(), cmap="gray")
+    axes[2].imshow(gravity_img, cmap="gray")
     axes[2].set_title("Gravity")
 
     for ax in axes:
         ax.axis("off")
 
     plt.tight_layout()
-    plt.show()
+    plt.savefig("lunar_multimodal_sanity_check.png")
