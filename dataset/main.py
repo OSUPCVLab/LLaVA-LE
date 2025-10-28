@@ -39,6 +39,9 @@ Advanced Examples:
     # Use custom splits file and API key
     python main.py --splits-file custom_splits.json --api-key sk-your-key-here
 
+    # Random sampling for sanity checking
+    python main.py --random-sampling --max-samples 50 --seed 123
+
 Model Management:
     # List all available OpenAI models
     python main.py --list-models
@@ -62,6 +65,7 @@ import os
 import argparse
 import sys
 import json
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -124,8 +128,21 @@ def main():
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.3,
-        help="Temperature for text generation (0.0-2.0, default: 0.3)",
+        default=0.25,
+        help="Temperature for text generation (0.0-2.0, default: 0.25)",
+    )
+
+    parser.add_argument(
+        "--random-sampling",
+        action="store_true",
+        help="Randomly sample from dataset instead of sequential processing. Useful for sanity checking.",
+    )
+
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducible random sampling (default: 42)",
     )
 
     args = parser.parse_args()
@@ -172,6 +189,9 @@ def main():
     print(f"Splits file: {splits_file if splits_file else 'None'}")
     print(f"Split: {args.split if args.split else 'All'}")
     print(f"Max samples: {args.max_samples if args.max_samples else 'All'}")
+    print(f"Sampling: {'Random' if args.random_sampling else 'Sequential'}")
+    if args.random_sampling:
+        print(f"Random seed: {args.seed}")
     print(f"Model: {args.model}")
     print(f"Temperature: {args.temperature}")
     print(f"Output directory: {output_dir}")
@@ -244,6 +264,16 @@ def main():
 
         print(f"Processing {num_samples} samples from dataset (total: {total_samples})")
 
+        # Generate sample indices based on sampling method
+        # Random sampling of the dataset may be used for sanity checking purposes
+        # Because if you sample sequentially it does not cover all the cases that there is 
+        if args.random_sampling:
+            random.seed(args.seed)
+            sample_indices = random.sample(range(total_samples), num_samples)
+            print(f"Random sampling enabled (seed: {args.seed})")
+        else:
+            sample_indices = list(range(num_samples))
+
         # Collect all results
         all_results = {
             "general_info": {
@@ -264,10 +294,10 @@ def main():
         from tqdm import tqdm
 
         with tqdm(total=num_samples, desc="Generating captions", unit="sample") as pbar:
-            for i in range(num_samples):
+            for idx, sample_idx in enumerate(sample_indices):
                 try:
                     # Get sample from dataset
-                    sample = dataset[i]
+                    sample = dataset[sample_idx]
 
                     # Extract PIL images
                     pancro_image = sample["pancro"]
@@ -275,7 +305,7 @@ def main():
                     slope_image = sample["slope"]
 
                     # Create identifier from dataset index and tile info
-                    tile_name, row_col = dataset.index[i]
+                    tile_name, row_col = dataset.index[sample_idx]
                     identifier = f"{tile_name}_{row_col}"
 
                     # Generate caption
@@ -326,7 +356,7 @@ def main():
                         {
                             "success": successful_count,
                             "failed": failed_count,
-                            "current": f"ERROR: {e}",
+                            "current": f"ERROR (idx {sample_idx}): {str(e)[:50]}{'...' if len(str(e)) > 50 else ''}",
                         }
                     )
                     continue

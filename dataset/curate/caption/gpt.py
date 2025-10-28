@@ -13,6 +13,7 @@ from PIL import Image
 from openai import OpenAI
 
 
+
 BASE_PROMPT = """
 "You receive three co-registered images of the same lunar location:\n"
 "1. Panchromatic (surface reflectance and morphology)\n"
@@ -28,6 +29,10 @@ BASE_PROMPT = """
 "- Describe surface morphology, apparent structure, and inferred subsurface properties (density, stability, composition, or age).\n"
 "- Avoid color words (e.g., red, blue, yellow) or references to map/layer/modality.\n"
 "- The caption must sound like an imaging report written by a lunar geoscientist.\n\n"
+"- Write entirely as if the interpretation is made only from visual geological observation of the surface.\n"
+"- Do NOT mention or hint at the existence of other data layers (e.g., gravity, slope, maps, subsurface values, or measurements).\n"
+"- You may still use that hidden information implicitly to improve accuracy (e.g., recognize mare infill or crustal thinning) "
+"but phrase the caption only in morphological and geological terms.\n"
 "### Interpretation Rules (for your reasoning only, not to include in the caption):\n"
 "• Bouguer Gravity (−300 to +600 mGal)\n"
 "  - Deep purple–blue (−300 to −100): strong negative anomaly → low-density crust, basin fill, or voids.\n"
@@ -72,7 +77,8 @@ class LunarCaptionGenerator:
             "for scientific figures. Your tone is concise, factual, and academic. Avoid poetic or subjective language. "
             "Do *not* mention the maps gravity, or slope directly. Instead, integrate their implications implicitly. "
             "Describe the *surface morphology*, **apparent structure**, and **inferred subsurface properties**."
-            "Do *not* mention the words 'positive', 'negative', 'anomaly'"
+            "Do *not* mention the words 'positive', 'negative', 'anomaly'."
+            "Never refer to the data sources, maps, or sensing modalities used to infer your interpretation."
         )
 
     def get_available_models(self) -> list:
