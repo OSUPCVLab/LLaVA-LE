@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Load conda into this non-interactive shell
+source ~/.bashrc
+
+conda activate llava
+
+# Run training
 deepspeed llava/train/train_mem.py \
     --lora_enable True --lora_r 128 --lora_alpha 256 --mm_projector_lr 2e-5 \
     --deepspeed ./scripts/zero3.json \
