@@ -1,64 +1,7 @@
 #!/usr/bin/env python3
 """
 Main script to run GPT-4 Vision captioning for lunar surface imagery.
-
-This script processes lunar multimodal datasets and generates scientific captions
-using OpenAI's GPT-4 Vision API. It supports various OpenAI models, custom temperature
-settings, dataset splitting, and flexible output options.
-
-Usage:
-    python main.py [options]
-
-Prerequisites:
-    - Set OpenAI API key: export OPENAI_API_KEY="your_key_here"
-    - Ensure dataset structure: data/lumina/{tile_name}/{modality}/r{XX}_c{YY}.png
-
-Basic Examples:
-    # Process entire dataset with default settings (gpt-4o, temperature=0.3)
-    python main.py
-
-    # Process specific split with sample limit
-    python main.py --split train --max-samples 100
-
-    # Use custom model and temperature for more creative captions
-    python main.py --model gpt-4o-mini --temperature 0.7
-
-    # Deterministic output for reproducible results
-    python main.py --temperature 0.0 --max-samples 50
-
-Advanced Examples:
-    # Custom dataset location and output directory
-    python main.py --root-dir /path/to/lunar/data --output-dir /path/to/results
-
-    # Process validation set with specific model
-    python main.py --split val --model gpt-4-turbo --max-samples 500
-
-    # High creativity for diverse caption generation
-    python main.py --temperature 1.2 --model gpt-4o --split test
-
-    # Use custom splits file and API key
-    python main.py --splits-file custom_splits.json --api-key sk-your-key-here
-
-    # Random sampling for sanity checking
-    python main.py --random-sampling --max-samples 50 --seed 123
-
-Model Management:
-    # List all available OpenAI models
-    python main.py --list-models
-
-    # Use specific vision model
-    python main.py --model gpt-4-vision-preview --temperature 0.5
-
-Output:
-    - Generates JSON files with captions, metadata, and location info
-    - Files saved to outputs/ directory (or custom --output-dir)
-    - Naming: lunar_captions_{split}_{timestamp}.json
-
-Temperature Guidelines:
-    - 0.0: Deterministic, consistent output
-    - 0.3: Balanced (default), good for scientific accuracy
-    - 0.7: More creative, varied descriptions
-    - 1.0+: Highly creative, potentially inconsistent
+Modified to save progress incrementally every N captions with proper resume functionality.
 """
 
 import os
@@ -66,16 +9,102 @@ import argparse
 import sys
 import json
 import random
+import shutil
 from datetime import datetime
 from pathlib import Path
 
 from curate.caption import LunarCaptionGenerator, LunarMultimodalDataset
 
 
+def find_latest_output_file(output_dir, split):
+    """
+    Find the most recent output file for the given split.
+    
+    Args:
+        output_dir: Directory containing output files
+        split: Split name (train/val/test/all)
+        
+    Returns:
+        Path to latest file, or None if not found
+    """
+    pattern = f"lunar_captions_{split}_*.json"
+    output_path = Path(output_dir)
+    
+    if not output_path.exists():
+        return None
+    
+    # Find all matching files
+    matching_files = list(output_path.glob(pattern))
+    
+    if not matching_files:
+        return None
+    
+    # Return the most recently modified file
+    latest_file = max(matching_files, key=lambda p: p.stat().st_mtime)
+    return latest_file
+
+
+def load_existing_progress(output_file):
+    """
+    Load existing progress from output file if it exists.
+    
+    Returns:
+        tuple: (results_dict, processed_identifiers_set)
+    """
+    if output_file and output_file.exists():
+        try:
+            with open(output_file, 'r', encoding='utf-8') as f:
+                existing_results = json.load(f)
+            
+            # Extract identifiers of already processed samples
+            processed = set()
+            for caption_entry in existing_results.get('captions', []):
+                location = caption_entry.get('location', {})
+                identifier = f"{location.get('tile_name', '')}_{location.get('row_col', '')}"
+                processed.add(identifier)
+            
+            print(f"✓ Found existing progress: {len(processed)} captions already generated")
+            return existing_results, processed
+        except Exception as e:
+            print(f"Warning: Could not load existing progress: {e}")
+            print("Starting fresh...")
+    
+    return None, set()
+
+
+def save_results(output_file, results, create_backup=True):
+    """
+    Save results to JSON file with optional backup of previous version.
+    
+    Args:
+        output_file: Path to output file
+        results: Results dictionary to save
+        create_backup: Whether to backup existing file before overwriting
+    """
+    try:
+        # Create backup of existing file
+        if create_backup and output_file.exists():
+            backup_file = output_file.with_suffix('.json.backup')
+            shutil.copy2(output_file, backup_file)
+        
+        # Write new results atomically (write to temp file, then rename)
+        temp_file = output_file.with_suffix('.json.tmp')
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2, ensure_ascii=False)
+        
+        # Rename temp file to actual file (atomic operation)
+        temp_file.replace(output_file)
+        
+        return True
+    except Exception as e:
+        print(f"Error saving results: {e}")
+        return False
+
+
 def main():
     """Main function to run the caption generation."""
     parser = argparse.ArgumentParser(
-        description="Generate scientific captions for lunar surface imagery using GPT-4 Vision"
+        description="Generate scientific captions for lunar surface imagery using GPT Vision API"
     )
 
     parser.add_argument(
@@ -116,7 +145,7 @@ def main():
     parser.add_argument(
         "--model",
         default="gpt-4o",
-        help="OpenAI model to use for caption generation (default: gpt-4o)",
+        help="OpenAI model to use for caption generation (default: gpt-4o). Examples: gpt-4o, gpt-4-turbo, gpt-5.1",
     )
 
     parser.add_argument(
@@ -135,7 +164,7 @@ def main():
     parser.add_argument(
         "--random-sampling",
         action="store_true",
-        help="Randomly sample from dataset instead of sequential processing. Useful for sanity checking.",
+        help="Randomly sample from dataset instead of sequential processing.",
     )
 
     parser.add_argument(
@@ -143,6 +172,24 @@ def main():
         type=int,
         default=42,
         help="Random seed for reproducible random sampling (default: 42)",
+    )
+
+    parser.add_argument(
+        "--save-interval",
+        type=int,
+        default=50,
+        help="Save progress every N captions (default: 50)",
+    )
+
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from existing output file if it exists",
+    )
+
+    parser.add_argument(
+        "--output-name",
+        help="Custom name for output file (without extension). If not provided, uses timestamp.",
     )
 
     args = parser.parse_args()
@@ -156,16 +203,30 @@ def main():
     api_key = args.api_key or os.getenv("OPENAI_API_KEY")
 
     if not api_key:
-        print(
-            "Error: Please provide OpenAI API key using --api-key or set OPENAI_API_KEY environment variable"
-        )
+        print("\n" + "=" * 60)
+        print("ERROR: OpenAI API Key Required")
+        print("=" * 60)
+        print("\nYou need to provide your OpenAI API key in one of two ways:")
+        print("\n1. Set as environment variable (RECOMMENDED):")
+        print("   Windows (Command Prompt):")
+        print("      set OPENAI_API_KEY=your_api_key_here")
+        print("   Windows (PowerShell):")
+        print("      $env:OPENAI_API_KEY='your_api_key_here'")
+        print("   Linux/Mac:")
+        print("      export OPENAI_API_KEY='your_api_key_here'")
+        print("\n2. Pass directly via command line:")
+        print("      python main.py --api-key your_api_key_here")
+        print("\nTo get your API key, visit: https://platform.openai.com/api-keys")
+        print("=" * 60 + "\n")
         return 1
 
-    # Resolve paths relative to the dataset directory
+    # Resolve paths - all relative to script location
     dataset_dir = Path(__file__).parent
-    root_dir = dataset_dir / args.root_dir
-    splits_file = dataset_dir / args.splits_file if args.splits_file else None
-    output_dir = dataset_dir / args.output_dir
+    root_dir = Path(args.root_dir) if os.path.isabs(args.root_dir) else dataset_dir / args.root_dir
+    splits_file = Path(args.splits_file) if args.splits_file else None
+    if splits_file and not os.path.isabs(args.splits_file):
+        splits_file = dataset_dir / args.splits_file
+    output_dir = Path(args.output_dir) if os.path.isabs(args.output_dir) else dataset_dir / args.output_dir
 
     # Create output directory if it doesn't exist
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -174,6 +235,7 @@ def main():
     if not root_dir.exists():
         print(f"Error: Dataset directory not found: {root_dir}")
         print("Please check the path or use --root-dir to specify the correct path")
+        print(f"Expected structure: {root_dir}/tile_name/pancro|gravity|slope/")
         return 1
 
     # Check splits file if specified
@@ -183,7 +245,7 @@ def main():
         splits_file = None
 
     print("=" * 60)
-    print("Lunar Surface Caption Generator")
+    print("Lunar Surface Caption Generator (Incremental Save Mode)")
     print("=" * 60)
     print(f"Dataset directory: {root_dir}")
     print(f"Splits file: {splits_file if splits_file else 'None'}")
@@ -194,6 +256,8 @@ def main():
         print(f"Random seed: {args.seed}")
     print(f"Model: {args.model}")
     print(f"Temperature: {args.temperature}")
+    print(f"Save interval: Every {args.save_interval} captions")
+    print(f"Resume mode: {'Enabled' if args.resume else 'Disabled'}")
     print(f"Output directory: {output_dir}")
     print("=" * 60)
 
@@ -212,7 +276,7 @@ def main():
             vision_models = [
                 m
                 for m in models
-                if any(pattern in m for pattern in ["gpt-4", "gpt-4o", "gpt-4-vision"])
+                if any(pattern in m for pattern in ["gpt-4", "gpt-5", "gpt-4o", "gpt-4-vision", "vision"])
             ]
             other_models = [m for m in models if m not in vision_models]
 
@@ -224,7 +288,7 @@ def main():
 
             if other_models:
                 print("Other available models:")
-                for model in other_models[:10]:  # Limit to first 10 to avoid spam
+                for model in other_models[:10]:
                     print(f"  - {model}")
                 if len(other_models) > 10:
                     print(f"  ... and {len(other_models) - 10} more")
@@ -256,17 +320,61 @@ def main():
             print("No samples found in dataset. Please check your dataset structure.")
             return 1
 
-        # Process samples
+        # Determine output file name
+        split_name = args.split if args.split else 'all'
+        
+        # Check for resume mode
+        output_file = None
+        processed_identifiers = set()
+        all_results = None
+        successful_count = 0
+        
+        if args.resume:
+            # Try to find existing file
+            output_file = find_latest_output_file(output_dir, split_name)
+            
+            if output_file:
+                print(f"Found existing file for resume: {output_file.name}")
+                all_results, processed_identifiers = load_existing_progress(output_file)
+                if all_results:
+                    successful_count = len(all_results['captions'])
+                    print(f"Resuming from {successful_count} existing captions")
+                else:
+                    output_file = None
+        
+        # If no existing file found or not resuming, create new filename
+        if output_file is None:
+            if args.output_name:
+                output_filename = f"lunar_captions_{split_name}_{args.output_name}"
+            else:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_filename = f"lunar_captions_{split_name}_{timestamp}"
+            
+            output_file = output_dir / f"{output_filename}.json"
+            print(f"Creating new output file: {output_file.name}")
+
+        # Initialize results structure if needed
         total_samples = len(dataset)
         num_samples = (
             min(args.max_samples, total_samples) if args.max_samples else total_samples
         )
 
+        if all_results is None:
+            all_results = {
+                "general_info": {
+                    "total_samples": total_samples,
+                    "processed_samples": num_samples,
+                    "timestamp": datetime.now().isoformat(),
+                    "model": args.model,
+                    "temperature": args.temperature,
+                    "split": split_name,
+                },
+                "captions": [],
+            }
+
         print(f"Processing {num_samples} samples from dataset (total: {total_samples})")
 
         # Generate sample indices based on sampling method
-        # Random sampling of the dataset may be used for sanity checking purposes
-        # Because if you sample sequentially it does not cover all the cases that there is 
         if args.random_sampling:
             random.seed(args.seed)
             sample_indices = random.sample(range(total_samples), num_samples)
@@ -274,39 +382,31 @@ def main():
         else:
             sample_indices = list(range(num_samples))
 
-        # Collect all results
-        all_results = {
-            "general_info": {
-                "total_samples": total_samples,
-                "processed_samples": num_samples,
-                "timestamp": datetime.now().isoformat(),
-                "model": args.model,
-                "temperature": args.temperature,
-                "split": args.split if args.split else "all",
-            },
-            "captions": [],
-        }
-
-        # Process each sample with progress bar
-        successful_count = 0
         failed_count = 0
+        captions_since_last_save = 0
+        skipped_count = len(processed_identifiers)
 
         from tqdm import tqdm
 
-        with tqdm(total=num_samples, desc="Generating captions", unit="sample") as pbar:
+        with tqdm(total=num_samples, desc="Generating captions", unit="sample", initial=skipped_count) as pbar:
             for idx, sample_idx in enumerate(sample_indices):
                 try:
                     # Get sample from dataset
                     sample = dataset[sample_idx]
 
+                    # Create identifier from dataset index and tile info
+                    tile_name, row_col = dataset.index[sample_idx]
+                    identifier = f"{tile_name}_{row_col}"
+
+                    # Skip if already processed (in resume mode)
+                    if identifier in processed_identifiers:
+                        pbar.update(1)
+                        continue
+
                     # Extract PIL images
                     pancro_image = sample["pancro"]
                     gravity_image = sample["gravity"]
                     slope_image = sample["slope"]
-
-                    # Create identifier from dataset index and tile info
-                    tile_name, row_col = dataset.index[sample_idx]
-                    identifier = f"{tile_name}_{row_col}"
 
                     # Generate caption
                     caption = generator.generate_caption_from_images(
@@ -332,12 +432,26 @@ def main():
                         }
 
                         all_results["captions"].append(result)
+                        processed_identifiers.add(identifier)
                         successful_count += 1
+                        captions_since_last_save += 1
+
+                        # Save progress every N captions
+                        if captions_since_last_save >= args.save_interval:
+                            all_results["general_info"]["successful_captions"] = successful_count
+                            all_results["general_info"]["last_updated"] = datetime.now().isoformat()
+                            
+                            if save_results(output_file, all_results):
+                                pbar.write(f"✓ Progress saved: {successful_count} captions ({output_file.name})")
+                                captions_since_last_save = 0
+                            else:
+                                pbar.write(f"✗ Failed to save progress at {successful_count} captions")
+
                         pbar.set_postfix(
                             {
                                 "success": successful_count,
                                 "failed": failed_count,
-                                "current": identifier,
+                                "unsaved": captions_since_last_save,
                             }
                         )
                     else:
@@ -352,41 +466,55 @@ def main():
 
                 except Exception as e:
                     failed_count += 1
+                    error_msg = str(e)[:50] + ('...' if len(str(e)) > 50 else '')
                     pbar.set_postfix(
                         {
                             "success": successful_count,
                             "failed": failed_count,
-                            "current": f"ERROR (idx {sample_idx}): {str(e)[:50]}{'...' if len(str(e)) > 50 else ''}",
+                            "current": f"ERROR: {error_msg}",
                         }
                     )
                     continue
                 finally:
                     pbar.update(1)
 
-        # Update successful count
+        # Final save with all remaining captions
         all_results["general_info"]["successful_captions"] = successful_count
+        all_results["general_info"]["failed_captions"] = failed_count
+        all_results["general_info"]["completion_timestamp"] = datetime.now().isoformat()
 
-        # Save results to JSON file
-        output_filename = f"lunar_captions_{args.split if args.split else 'all'}"
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_filename = f"{output_filename}_{timestamp}"
+        if save_results(output_file, all_results, create_backup=False):
+            print(f"\n{'=' * 60}")
+            print("Caption generation completed!")
+            print(f"Successfully generated: {successful_count}/{num_samples} captions")
+            if skipped_count > 0:
+                print(f"Skipped (already done): {skipped_count} captions")
+            if failed_count > 0:
+                print(f"Failed: {failed_count}/{num_samples} captions")
+            print(f"Final results saved to: {output_file}")
+            
+            # Clean up backup file if it exists
+            backup_file = output_file.with_suffix('.json.backup')
+            if backup_file.exists():
+                backup_file.unlink()
+                print(f"Backup file removed: {backup_file.name}")
+        else:
+            print(f"\n{'=' * 60}")
+            print("Warning: Final save failed!")
+            print(f"Check the backup file: {output_file.with_suffix('.json.backup')}")
 
-        output_file = output_dir / f"{output_filename}.json"
-
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(all_results, f, indent=2, ensure_ascii=False)
-
-        print(f"\n{'=' * 60}")
-        print("Caption generation completed!")
-        print(f"Successfully generated: {successful_count}/{num_samples} captions")
-        if failed_count > 0:
-            print(f"Failed: {failed_count}/{num_samples} captions")
-        print(f"Results saved to: {output_file}")
         return 0
 
     except Exception as e:
         print(f"Error processing dataset: {e}")
         print("Please check your dataset path and structure.")
+        
+        # Try to save whatever progress we have
+        if 'all_results' in locals() and all_results:
+            emergency_file = output_dir / f"emergency_save_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            if save_results(emergency_file, all_results, create_backup=False):
+                print(f"Emergency save successful: {emergency_file}")
+        
         return 1
 
 

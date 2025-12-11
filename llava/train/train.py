@@ -698,8 +698,10 @@ class LazySupervisedDataset(Dataset):
             image_id = self.list_data_dict[i]['id']
             image_file = self.list_data_dict[i]['image']
             image_folder = self.data_args.image_folder
+            # using https://huggingface.co/docs/transformers/v4.57.3/en/model_doc/clip#transformers.CLIPImageProcessor
             processor = self.data_args.image_processor
             image = Image.open(os.path.join(image_folder, image_id, image_file)).convert('RGB')
+            image.save("output_image.png") 
             if self.data_args.image_aspect_ratio == 'pad':
                 def expand2square(pil_img, background_color):
                     width, height = pil_img.size
@@ -713,7 +715,11 @@ class LazySupervisedDataset(Dataset):
                         result = Image.new(pil_img.mode, (height, height), background_color)
                         result.paste(pil_img, ((height - width) // 2, 0))
                         return result
+                import numpy as np
+
                 image = expand2square(image, tuple(int(x*255) for x in processor.image_mean))
+                # uses the default mean and std to normalize the image 
+                # do_normalize is by default true 
                 image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
             else:
                 image = processor.preprocess(image, return_tensors='pt')['pixel_values'][0]
@@ -722,6 +728,7 @@ class LazySupervisedDataset(Dataset):
                 self.data_args)
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
+
         data_dict = preprocess(
             sources,
             self.tokenizer,
@@ -917,10 +924,11 @@ def train(attn_implementation=None):
             model_args=model_args,
             fsdp=training_args.fsdp
         )
-        
+
         vision_tower = model.get_vision_tower()
         vision_tower.to(dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device)
 
+        # https://huggingface.co/docs/transformers/v4.57.3/en/model_doc/clip#transformers.CLIPImageProcessor
         data_args.image_processor = vision_tower.image_processor
         data_args.is_multimodal = True
 
@@ -963,9 +971,20 @@ def train(attn_implementation=None):
 
     data_module = make_supervised_data_module(tokenizer=tokenizer,
                                               data_args=data_args)
+    
+    # Initialize gradient monitoring callback
+    from llava.train.gradient_monitor import GradientMonitorCallback
+    gradient_callback = GradientMonitorCallback(
+        log_interval=10,  # Log every 10 steps
+        output_dir=os.path.join(training_args.output_dir, "gradient_logs"),
+        log_to_wandb=True,  # Log to wandb if enabled
+        track_lora_only=True,  # Only track LoRA params to save memory
+    )
+    
     trainer = LLaVATrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
+                    callbacks=[gradient_callback],
                     **data_module)
 
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):

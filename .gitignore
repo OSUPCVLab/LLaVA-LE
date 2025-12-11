@@ -209,6 +209,9 @@ __marimo__/
 # excluded folders
 **/data/
 **/checkpoints/
-**/wandb
+**/wandb/
+**/log/
 
-**/*_slurm.sh
+**/**.sh
+**/grad_analyzer
+**/gradient_**.py
