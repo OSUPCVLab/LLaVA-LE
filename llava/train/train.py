@@ -21,6 +21,8 @@ import json
 import logging
 import pathlib
 from typing import Dict, Optional, Sequence, List
+from llava.train.params import print_trainable_layers
+
 
 import torch
 
@@ -30,19 +32,22 @@ import tokenizers
 from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN
 from torch.utils.data import Dataset
 from llava.train.llava_trainer import LLaVATrainer
+from llava.train.gradient_callback import GradientLoggingCallback
+from llava.train.loss_callback import LossJSONLogger
 
 from llava import conversation as conversation_lib
 from llava.model import *
 from llava.mm_utils import tokenizer_image_token
 
 from PIL import Image
-
+from pathlib import Path
+from datetime import datetime
 
 local_rank = None
 
 
 def rank0_print(*args):
-    if local_rank == 0:
+    if local_rank in (0, -1): 
         print(*args)
 
 
@@ -111,6 +116,10 @@ class TrainingArguments(transformers.TrainingArguments):
     lora_bias: str = "none"
     mm_projector_lr: Optional[float] = None
     group_by_modality_length: bool = field(default=False)
+    # Gradient logging
+    log_gradients: bool = field(default=False)
+    gradient_log_steps: int = field(default=10)
+    gradient_log_dir: str = field(default="./gradient_logs")
 
 
 def maybe_zero_3(param, ignore_status=False, name=None):
@@ -670,6 +679,7 @@ class LazySupervisedDataset(Dataset):
         self.list_data_dict = list_data_dict
         self.data_args = data_args
 
+
     def __len__(self):
         return len(self.list_data_dict)
 
@@ -702,7 +712,6 @@ class LazySupervisedDataset(Dataset):
             # using https://huggingface.co/docs/transformers/v4.57.3/en/model_doc/clip#transformers.CLIPImageProcessor
             processor = self.data_args.image_processor
             image = Image.open(os.path.join(image_folder, image_id, image_file)).convert('RGB')
-            image.save("output_image.png") 
             if self.data_args.image_aspect_ratio == 'pad':
                 def expand2square(pil_img, background_color):
                     width, height = pil_img.size
@@ -800,6 +809,26 @@ def train(attn_implementation=None):
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    rank0_print("log_gradients =", training_args.log_gradients)
+
+    
+    # Add timestamp to output directory for distinction
+    # Add timestamp only if not resuming
+    existing_checkpoints = list(Path(training_args.output_dir).glob("checkpoint-*"))
+
+    if not existing_checkpoints:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        training_args.output_dir = f"{training_args.output_dir}_{timestamp}"
+
+    os.makedirs(training_args.output_dir, exist_ok=True)  
+    os.makedirs(training_args.output_dir, exist_ok=True)
+    # Force gradient logs to live inside the run directory
+    training_args.gradient_log_dir = os.path.join(
+        training_args.output_dir, "gradients"
+    )
+    os.makedirs(training_args.gradient_log_dir, exist_ok=True)
+
+
     local_rank = training_args.local_rank
     compute_dtype = (torch.float16 if training_args.fp16 else (torch.bfloat16 if training_args.bf16 else torch.float32))
 
@@ -888,6 +917,42 @@ def train(attn_implementation=None):
         rank0_print("Adding LoRA adapters...")
         model = get_peft_model(model, lora_config)
 
+        # ==========================================================
+        # DIAGNOSTIC: LoRA initialization statistics
+        # ==========================================================
+
+        if training_args.local_rank in (0, -1):
+            rank0_print("\n" + "="*80)
+            rank0_print("LoRA INITIALIZATION DIAGNOSTICS")
+            rank0_print("="*80)
+            
+            for name, param in model.named_parameters():
+                if "lora_" in name and param.requires_grad:
+                    stats = {
+                        'mean': param.data.mean().item(),
+                        'std': param.data.std().item(),
+                        'min': param.data.min().item(),
+                        'max': param.data.max().item(),
+                        'abs_mean': param.data.abs().mean().item(),
+                    }
+                    rank0_print(f"\n{name}:")
+                    rank0_print(f"  Shape: {param.shape}")
+                    rank0_print(f"  Mean: {stats['mean']:.6e}, Std: {stats['std']:.6e}")
+                    rank0_print(f"  Min:  {stats['min']:.6e}, Max: {stats['max']:.6e}")
+                    rank0_print(f"  Abs Mean: {stats['abs_mean']:.6e}")
+            
+            rank0_print("="*80 + "\n")
+
+            # ==========================================================
+
+            
+        if training_args.local_rank in (0, -1):
+            for name, param in model.named_parameters():
+                if "lora_" in name:
+                    print(name)
+
+
+
     if 'mpt' in model_args.model_name_or_path:
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             model_args.model_name_or_path,
@@ -973,19 +1038,28 @@ def train(attn_implementation=None):
     data_module = make_supervised_data_module(tokenizer=tokenizer,
                                               data_args=data_args)
     
-    # Initialize gradient monitoring callback
-    from llava.train.gradient_monitor import GradientMonitorCallback
-    gradient_callback = GradientMonitorCallback(
-        log_interval=10,  # Log every 10 steps
-        output_dir=os.path.join(training_args.output_dir, "gradient_logs"),
-        log_to_wandb=True,  # Log to wandb if enabled
-        track_lora_only=True,  # Only track LoRA params to save memory
-    )
-    
+
+    # Setup callbacks
+    callbacks = []
+    if training_args.log_gradients:
+        gradient_callback = GradientLoggingCallback(
+            log_every_n_steps=training_args.gradient_log_steps,
+            output_dir=training_args.output_dir
+        )
+        callbacks.append(gradient_callback)
+        rank0_print(f"Gradient logging enabled: every {training_args.gradient_log_steps} steps to {training_args.gradient_log_dir}")
+
+    # Always log loss to JSON
+    loss_log_path = os.path.join(training_args.output_dir, "loss_log.json")
+    callbacks.append(LossJSONLogger(loss_log_path))
+
+    if training_args.local_rank in (0, -1):
+        print_trainable_layers(model)
+
     trainer = LLaVATrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
-                    callbacks=[gradient_callback],
+                    callbacks=callbacks,
                     **data_module)
 
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
