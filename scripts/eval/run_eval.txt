@@ -1,5 +1,5 @@
 # 1. Set API key
-export OPENAI_API_KEY="sk1234"
+export OPENAI_API_KEY=""
 
 # GENERATE STAGE1 ANSWERS
 python llava/eval/model_vqa_lunar.py \
@@ -72,21 +72,3 @@ python llava/eval/eval_multimodal_chat_gpt_score.py \
     --question-file ./dataset/data/lunar_eval_50.json \
     --answers-file ./eval_outputs/basellava_answers.jsonl \
     --scores-file ./eval_outputs/basellava_scores.jsonl
-
------------------------------
-COMPARE MODELS (IGNORE- OLD METHOD, WE REMOVED THIS PART)
------------------------------
-#STAGE 1
-python llava/eval/summarize_gpt_review.py \
-    --scores-file ./eval_outputs/stage1_scores.jsonl \
-    --output-json ./eval_outputs/stage1_summary.json
-
-#STAGE 2
-python llava/eval/summarize_gpt_review.py \
-    --scores-file ./eval_outputs/stage2_scores.jsonl \
-    --output-json ./eval_outputs/stage2_summary.json
-
-#BASE LLAVA
-python llava/eval/summarize_gpt_review.py \
-    --scores-file ./eval_outputs/llava_scores.jsonl \
-    --output-json ./eval_outputs/llava_summary.json
