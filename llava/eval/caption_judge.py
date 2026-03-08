@@ -52,7 +52,7 @@ Apply strong penalties for caption paraphrasing.
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-MODEL_KEYS = ["model1", "model2", "model3", "model4", "model5"]
+MODEL_KEYS = ["LLaVA-LE-S1", "LLaVA-LE-S2", "GPT-TEXT-ONLY", "GEMINI-TEXT-ONLY", "LLaVA"]
 
 def load_jsonl(path):
     """Load a .jsonl file and return a list of dicts."""
@@ -88,7 +88,7 @@ def load_answers(path):
 def create_evaluation_prompt(question, fig_caption, question_type, answers_dict):
     """
     Build the user-turn prompt for the GPT-4 judge.
-    answers_dict: {model_key: answer_text, ...}  (model keys = model1..model5)
+    answers_dict: {model_key: answer_text, ...}
     """
     parts = [
         "[Reference Caption]",
@@ -102,21 +102,24 @@ def create_evaluation_prompt(question, fig_caption, question_type, answers_dict)
     ]
 
     for key in MODEL_KEYS:
-        label = key.replace("model", "Model ")
         answer = answers_dict.get(key, "No answer provided")
         parts += [
-            f"[{label}]",
+            f"[{key}]",
             answer,
-            f"[End of {label}]",
+            f"[End of {key}]",
             "",
         ]
+
+    format_str = " ".join(f"{k}=<score>" for k in MODEL_KEYS)
+    example_scores = [8, 7, 9, 6, 8]
+    example_str = " ".join(f"{k}={s}" for k, s in zip(MODEL_KEYS, example_scores))
 
     parts += [
         "[Evaluation Task]",
         "Evaluate each model's answer using ONLY the caption above as reference.",
         "Output format (follow EXACTLY — do not add any text before the scores block):",
-        "model1=<score> model2=<score> model3=<score> model4=<score> model5=<score>",
-        "Example: model1=8 model2=7 model3=9 model4=6 model5=8",
+        format_str,
+        f"Example: {example_str}",
         "Then on the next line(s): A comparative reasoning paragraph explaining why each model received its score.",
     ]
 
@@ -126,23 +129,31 @@ def create_evaluation_prompt(question, fig_caption, question_type, answers_dict)
 def parse_scores(raw_eval, n=5):
     """
     Extract scores from key=value format anywhere in the output.
-    Looks for patterns like: model1=8 model2=7 ... (case-insensitive, allows spaces around =)
+    Looks for patterns like: LLaVA-LE-S1=8 LLaVA-LE-S2=7 ... (case-insensitive, allows spaces around =)
     Falls back to first-line space-separated parse if key=value not found.
-    Returns list of n floats in order model1..model5.
+    Returns list of n floats in MODEL_KEYS order.
     """
     import re
 
-    # Primary: look for model1=<num> ... model5=<num> anywhere in the text
-    pattern = re.compile(r"model(\d)\s*=\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
+    # Primary: match each MODEL_KEY=<num> anywhere in the text
+    escaped_keys = [re.escape(k) for k in MODEL_KEYS]
+    pattern = re.compile(
+        r"(" + "|".join(escaped_keys) + r")\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+        re.IGNORECASE,
+    )
     matches = pattern.findall(raw_eval)
 
     if matches:
-        score_map = {int(idx): float(val) for idx, val in matches}
+        score_map = {}
+        for key_found, val in matches:
+            for k in MODEL_KEYS:
+                if k.lower() == key_found.lower():
+                    score_map[k] = float(val)
+                    break
         if len(score_map) == n:
-            return [score_map[i] for i in range(1, n + 1)]
+            return [score_map[k] for k in MODEL_KEYS]
         print(f"  Warning: found only {len(score_map)} model=score pairs, expected {n}. Found: {score_map}")
-        # Fill missing with 0
-        return [score_map.get(i, 0.0) for i in range(1, n + 1)]
+        return [score_map.get(k, 0.0) for k in MODEL_KEYS]
 
     # Fallback: first line space-separated numbers
     print("  Warning: key=value pattern not found, attempting fallback parse.")
@@ -276,11 +287,11 @@ def main(args):
 
     # ── Load all 5 model answer files ─────────────────────────────────────────
     answer_files = [
-        args.model1_answers,
-        args.model2_answers,
-        args.model3_answers,
-        args.model4_answers,
-        args.model5_answers,
+        args.LLaVA_LE_S1_answers,
+        args.LLaVA_LE_S2_answers,
+        args.GPT_TEXT_ONLY_answers,
+        args.GEMINI_TEXT_ONLY_answers,
+        args.LLaVA_answers,
     ]
 
     print("Loading model answers …")
@@ -360,11 +371,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--question-file", required=True,
                         help="JSON file with questions, types, and fig_captions.")
-    parser.add_argument("--model1-answers", required=True, help="Answers file for Model 1 (stage2).")
-    parser.add_argument("--model2-answers", required=True, help="Answers file for Model 2 (stage1_2).")
-    parser.add_argument("--model3-answers", required=True, help="Answers file for Model 3 (gpt text-only).")
-    parser.add_argument("--model4-answers", required=True, help="Answers file for Model 4 (gemini text-only).")
-    parser.add_argument("--model5-answers", required=True, help="Answers file for Model 5 (base llava).")
+    parser.add_argument("--LLaVA-LE-S1-answers", required=True, help="Answers file for LLaVA-LE stage 1 model.")
+    parser.add_argument("--LLaVA-LE-S2-answers", required=True, help="Answers file for LLaVA-LE stage 2 model.")
+    parser.add_argument("--GPT-TEXT-ONLY-answers", required=True, help="Answers file for GPT text-only.")
+    parser.add_argument("--GEMINI-TEXT-ONLY-answers", required=True, help="Answers file for Gemini text-only.")
+    parser.add_argument("--LLaVA-answers", required=True, help="Answers file for base LLaVA.")
     parser.add_argument("--scores-file", required=True,
                         help="Output JSONL: one record per question with scores.")
     parser.add_argument("--summary-file", required=True,

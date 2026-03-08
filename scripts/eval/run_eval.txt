@@ -39,11 +39,11 @@ EVALUATE GENERATED RESPONSES
 
 python llava/eval/caption_judge.py \
   --question-file dataset/data/lunar_eval_questions.json \
-  --model1-answers eval_outputs/model_answers/stage1_answers.jsonl \
-  --model2-answers eval_outputs/model_answers/stage2_answers.jsonl \
-  --model3-answers eval_outputs/model_answers/gpt_new_answers.json \
-  --model4-answers eval_outputs/model_answers/text_gemini_answers.jsonl \
-  --model5-answers eval_outputs/model_answers/basellava_answers.jsonl \
+  --LLaVA-LE-S1-answers eval_outputs/model_answers/stage1_answers.jsonl \
+  --LLaVA-LE-S2-answers eval_outputs/model_answers/stage2_answers.jsonl \
+  --GPT-TEXT-ONLY-answers eval_outputs/model_answers/gpt_new_answers.json \
+  --GEMINI-TEXT-ONLY-answers eval_outputs/model_answers/text_gemini_answers.jsonl \
+  --LLaVA-answers eval_outputs/model_answers/basellava_answers.jsonl \
   --scores-file eval_outputs/judge/judge_scores.jsonl \
   --summary-file eval_outputs/judge/judge_summary.json \
   --judge-model gpt-4o
