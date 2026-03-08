@@ -213,4 +213,5 @@ __marimo__/
 **/log/
 
 **/**.sh
+!scripts/eval/run_eval.sh
 **/grad_analyzer
