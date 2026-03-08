@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import os
+import re
 import json
 import argparse
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 from tqdm import tqdm
 from collections import defaultdict
 from openai import OpenAI
@@ -33,7 +37,7 @@ Reward answers that summarize the key implication cleanly. Answers that closely 
 
 4.\tConcision and Clarity
 Prefer the shortest and most concise answer that directly addresses the question with a clear generalized conclusion.
-Prefer responses that are technically accurate while being clear and concise. 
+Prefer responses that are technically accurate while being clear and concise.
 High scoring responses are compact, direct, short, and technically accurate.
 
 5.\tScientific Accuracy
@@ -54,9 +58,17 @@ Apply strong penalties for caption paraphrasing.
 
 MODEL_KEYS = ["LLaVA-LE-S1", "LLaVA-LE-S2", "GPT-TEXT-ONLY", "GEMINI-TEXT-ONLY", "LLaVA"]
 
-def load_jsonl(path):
-    """Load a .jsonl file and return a list of dicts."""
-    records = []
+
+def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    """Load a JSONL file and return its records as a list of dicts.
+
+    Args:
+        path: Path to the `.jsonl` file.
+
+    Returns:
+        A list of dicts, one per non-empty line.
+    """
+    records: list[dict[str, Any]] = []
     with open(path, "r") as f:
         for line in f:
             line = line.strip()
@@ -65,10 +77,18 @@ def load_jsonl(path):
     return records
 
 
-def load_answers(path):
-    """
-    Load answers file (.json or .jsonl).
-    Returns dict: question_id (int/str) -> answer text.
+def load_answers(path: str | Path) -> dict[str | int, str]:
+    """Load a model answer file (`.json` or `.jsonl`) into a question-id map.
+
+    Both formats are expected to contain records with a ``question_id`` field
+    and either a ``text`` or ``answer`` field holding the model's response.
+
+    Args:
+        path: Path to the answers file.  `.json` files are loaded as a JSON
+              array; all other extensions are treated as JSONL.
+
+    Returns:
+        A dict mapping each ``question_id`` to the corresponding answer text.
     """
     path = str(path)
     if path.endswith(".json"):
@@ -77,7 +97,7 @@ def load_answers(path):
     else:
         data = load_jsonl(path)
 
-    result = {}
+    result: dict[str | int, str] = {}
     for item in data:
         qid = item["question_id"]
         text = item.get("text") or item.get("answer") or ""
@@ -85,10 +105,26 @@ def load_answers(path):
     return result
 
 
-def create_evaluation_prompt(question, fig_caption, question_type, answers_dict):
-    """
-    Build the user-turn prompt for the GPT-4 judge.
-    answers_dict: {model_key: answer_text, ...}
+def create_evaluation_prompt(
+    question: str,
+    fig_caption: str,
+    question_type: str,
+    answers_dict: dict[str, str],
+) -> str:
+    """Build the user-turn prompt sent to the GPT-4 judge.
+
+    The prompt includes the reference caption, the question, every model's
+    answer (keyed by ``MODEL_KEYS``), and explicit scoring format instructions.
+
+    Args:
+        question: The evaluation question text.
+        fig_caption: The scientifically accurate reference caption for the image.
+        question_type: Category/type label for the question (e.g. ``"geology"``).
+        answers_dict: Mapping of model key → answer text.  Missing keys default
+                      to ``"No answer provided"``.
+
+    Returns:
+        A fully formatted prompt string ready to be sent as the user turn.
     """
     parts = [
         "[Reference Caption]",
@@ -126,15 +162,21 @@ def create_evaluation_prompt(question, fig_caption, question_type, answers_dict)
     return "\n".join(parts)
 
 
-def parse_scores(raw_eval, n=5):
-    """
-    Extract scores from key=value format anywhere in the output.
-    Looks for patterns like: LLaVA-LE-S1=8 LLaVA-LE-S2=7 ... (case-insensitive, allows spaces around =)
-    Falls back to first-line space-separated parse if key=value not found.
-    Returns list of n floats in MODEL_KEYS order.
-    """
-    import re
+def parse_scores(raw_eval: str, n: int = 5) -> list[float]:
+    """Extract per-model scores from the judge's raw text output.
 
+    Primary strategy: scan for ``ModelKey=<number>`` patterns anywhere in the
+    text (case-insensitive).  Falls back to parsing the first line as a
+    space-separated sequence of numbers if the primary strategy fails.
+
+    Args:
+        raw_eval: Raw text output from the judge model.
+        n: Expected number of scores (must match ``len(MODEL_KEYS)``).
+
+    Returns:
+        A list of ``n`` floats in ``MODEL_KEYS`` order.  Missing scores are
+        filled with ``0.0`` and a warning is printed.
+    """
     # Primary: match each MODEL_KEY=<num> anywhere in the text
     escaped_keys = [re.escape(k) for k in MODEL_KEYS]
     pattern = re.compile(
@@ -144,7 +186,7 @@ def parse_scores(raw_eval, n=5):
     matches = pattern.findall(raw_eval)
 
     if matches:
-        score_map = {}
+        score_map: dict[str, float] = {}
         for key_found, val in matches:
             for k in MODEL_KEYS:
                 if k.lower() == key_found.lower():
@@ -176,8 +218,29 @@ def parse_scores(raw_eval, n=5):
 # Core evaluation loop
 # ─────────────────────────────────────────────────────────────────────────────
 
-def evaluate_questions(samples, client, judge_model):
-    results = []
+def evaluate_questions(
+    samples: list[dict[str, Any]],
+    client: OpenAI,
+    judge_model: str,
+) -> list[dict[str, Any]]:
+    """Run the judge model over every prepared sample and collect scores.
+
+    Each sample is turned into a structured prompt via
+    :func:`create_evaluation_prompt`, sent to the judge, and the resulting
+    scores are parsed with :func:`parse_scores`.
+
+    Args:
+        samples: List of sample dicts, each containing keys ``question_id``,
+                 ``question``, ``fig_caption``, ``type``, and ``answers``.
+        client: Authenticated ``OpenAI`` client instance.
+        judge_model: Name of the OpenAI model to use as judge (e.g. ``"gpt-4o"``).
+
+    Returns:
+        A copy of ``samples`` with two extra keys added per record:
+        ``"judge_output"`` (raw judge text) and ``"scores"`` (dict mapping each
+        model key to its float score).
+    """
+    results: list[dict[str, Any]] = []
     print(f"\nEvaluating {len(samples)} questions with {judge_model} as judge …")
 
     for sample in tqdm(samples):
@@ -215,9 +278,32 @@ def evaluate_questions(samples, client, judge_model):
 # Summary generation
 # ─────────────────────────────────────────────────────────────────────────────
 
-def generate_model_summaries(results, client, judge_model):
-    """Compute per-model aggregate stats and generate a short LLM justification."""
-    aggregated = {key: defaultdict(list) for key in MODEL_KEYS}
+def generate_model_summaries(
+    results: list[dict[str, Any]],
+    client: OpenAI,
+    judge_model: str,
+) -> dict[str, dict[str, Any]]:
+    """Compute per-model aggregate statistics and generate LLM justifications.
+
+    For each model key, per-question-type average scores are computed and then
+    sent back to the judge model to produce a concise natural-language summary.
+
+    Args:
+        results: Output of :func:`evaluate_questions` — list of scored sample
+                 dicts, each containing a ``"scores"`` key and a ``"type"`` key.
+        client: Authenticated ``OpenAI`` client instance.
+        judge_model: Name of the OpenAI model used to write justifications.
+
+    Returns:
+        A dict keyed by model name.  Each value is a dict with:
+
+        - ``"stats"``: mapping of question-type → ``{"avg": float, "n": int}``,
+          plus an ``"overall"`` entry aggregating all types.
+        - ``"justification"``: a short natural-language summary from the judge.
+    """
+    aggregated: dict[str, defaultdict[str, list[float]]] = {
+        key: defaultdict(list) for key in MODEL_KEYS
+    }
 
     for r in results:
         q_type = r["type"]
@@ -227,7 +313,7 @@ def generate_model_summaries(results, client, judge_model):
             aggregated[key]["overall"].append(score)
 
     # Stats
-    model_stats = {}
+    model_stats: dict[str, dict[str, dict[str, Any]]] = {}
     for key in MODEL_KEYS:
         model_stats[key] = {}
         for cat in list(aggregated[key].keys()):
@@ -236,7 +322,7 @@ def generate_model_summaries(results, client, judge_model):
 
     # LLM justifications
     print("\nGenerating per-model summary justifications …")
-    summaries = {}
+    summaries: dict[str, dict[str, Any]] = {}
 
     for key in tqdm(MODEL_KEYS):
         stats = model_stats[key]
@@ -274,7 +360,16 @@ def generate_model_summaries(results, client, judge_model):
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
+    """Orchestrate the full evaluation pipeline.
+
+    Loads questions and model answer files, assembles per-question samples,
+    runs the GPT judge, saves per-question scores and per-model summaries,
+    and prints a results table to stdout.
+
+    Args:
+        args: Parsed CLI arguments (see ``__main__`` block for the full list).
+    """
     client = OpenAI(api_key=args.api_key or os.environ["OPENAI_API_KEY"])
     judge_model = args.judge_model  # e.g. "gpt-4o"
 
@@ -283,7 +378,9 @@ def main(args):
         question_data = json.load(f)
 
     # Build a lookup: question_id -> question record
-    question_map = {q["question_id"]: q for q in question_data}
+    question_map: dict[str | int, dict[str, Any]] = {
+        q["question_id"]: q for q in question_data
+    }
 
     # ── Load all 5 model answer files ─────────────────────────────────────────
     answer_files = [
@@ -295,7 +392,7 @@ def main(args):
     ]
 
     print("Loading model answers …")
-    model_answers = {}
+    model_answers: dict[str, dict[str | int, str]] = {}
     for key, path in zip(MODEL_KEYS, answer_files):
         if path:
             data = load_answers(path)
@@ -306,7 +403,7 @@ def main(args):
             print(f"  {key}: no file provided – will use 'No answer'")
 
     # ── Prepare samples ───────────────────────────────────────────────────────
-    samples = []
+    samples: list[dict[str, Any]] = []
     missing_caption = 0
     for qid, q in question_map.items():
         # fig_caption may be stored directly on the question or not present
