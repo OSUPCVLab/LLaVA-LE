@@ -4,7 +4,7 @@ export OPENAI_API_KEY=""
 # GENERATE STAGE1 ANSWERS
 python llava/eval/model_vqa_lunar.py \
     --model-path ./checkpoints/llava-v1.5-13b-task-lora-no-regularization_20260221_001701 \
-    --question-file ./dataset/data/lunar_eval_50_questions.json \
+    --question-file ./dataset/data/lunar_eval_questions.json \
     --image-folder ./dataset/data/lumina_96k/data \
     --answers-file ./eval_outputs/stage1_answers.jsonl \
     --conv-mode vicuna_v1 \
@@ -16,7 +16,7 @@ python llava/eval/model_vqa_lunar.py \
 # GENERATE STAGE2 ANSWERS
 python llava/eval/model_vqa_lunar.py \
     --model-path ./checkpoints/llava-v1.5-13b-task-lora-stage2_20260225_221920 \
-    --question-file ./dataset/data/lunar_eval_50_questions.json \
+    --question-file ./dataset/data/lunar_eval_questions.json \
     --image-folder ./dataset/data/lumina_96k/data \
     --answers-file ./eval_outputs/stage2_answers.jsonl \
     --conv-mode vicuna_v1 \
@@ -27,7 +27,7 @@ python llava/eval/model_vqa_lunar.py \
 # GENERATE BASE LLAVA ANSWERS
 python llava/eval/model_vqa_lunar.py \
     --model-path liuhaotian/llava-v1.5-13b \
-    --question-file ./dataset/data/lunar_eval_50_questions.json \
+    --question-file ./dataset/data/lunar_eval_questions.json \
     --image-folder ./dataset/data/lumina_96k/data \
     --answers-file ./eval_outputs/basellava_answers.jsonl \
     --conv-mode vicuna_v1 \
