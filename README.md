@@ -7,7 +7,7 @@
 ## Updates
 
 - **[2026-02-21] Codebase released.** The full training and evaluation code for LLaVA-LE is now publicly available in this repository.
-- 🤗 **[2026-02-21] LUCID dataset on Hugging Face.** The LUCID dataset ([`pcvlab/lucid`](https://huggingface.co/datasets/pcvlab/lucid)) is publicly available and is directly integrated into this codebase — no local data files or image folders are required.
+- **[2026-02-21] LUCID dataset on Hugging Face 🤗.** The LUCID dataset ([`pcvlab/lucid`](https://huggingface.co/datasets/pcvlab/lucid)) is publicly available and is directly integrated into this codebase — no local data files or image folders are required.
 
 ---
 
@@ -150,3 +150,4 @@ If you use LLaVA-LE or the LUCID dataset in your work, please cite:
   institution = {The Ohio State University}
 }
 ```
+
