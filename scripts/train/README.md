@@ -7,10 +7,14 @@ the lunar domain dataset.
 
 ## Two-Stage Training Overview
 
-| Stage | Script | Dataset | Purpose |
-|---|---|---|---|
-| **Stage 1** | `train_stage_1.sh` | `alignment_stage1_76000.json` | Align the model to lunar imagery via caption-style supervision |
-| **Stage 2** | `train_stage_2.sh` | `instruction_stage2_19550.json` | Instruction-tune on lunar Q&A, initialised from the Stage 1 LoRA weights |
+Training data is streamed directly from the
+[pcvlab/lucid](https://huggingface.co/datasets/pcvlab/lucid) HuggingFace
+dataset — **no local data files or image folders are required**.
+
+| Stage | Script | HF config | # Samples | Purpose |
+|---|---|---|---|---|
+| **Stage 1** | `train_stage_1.sh` | `stage1_captions` | ~96 K | Align the model to lunar imagery via caption-style supervision |
+| **Stage 2** | `train_stage_2.sh` | `stage2_qa` | ~81 K turns | Instruction-tune on lunar Q&A, initialised from the Stage 1 LoRA weights |
 
 Both scripts call `llava/train/train_mem.py` (which in turn calls `llava/train/train.py`
 with Flash Attention 2 enabled).
@@ -59,8 +63,8 @@ Parameters are grouped by the dataclass they belong to in `train.py`.
 
 | Parameter | Stage 1 value | Stage 2 value | Description |
 |---|---|---|---|
-| `--data_path` | `alignment_stage1_76000.json` | `instruction_stage2_19550.json` | Path to the training JSON file (list of conversation dicts) |
-| `--image_folder` | `./dataset/data/lumina_96k/data` | same | Root directory containing all training images |
+| `--hf_dataset` | `pcvlab/lucid` | `pcvlab/lucid` | HuggingFace dataset repo ID; images and conversations are streamed directly — no local files needed |
+| `--hf_config` | `stage1_captions` | `stage2_qa` | Config name selecting which split of LUCID to load |
 | `--image_aspect_ratio` | `pad` | `pad` | How to handle non-square images; `pad` pads to square rather than cropping |
 | `--lazy_preprocess` | `True` | `True` | Tokenise samples on-the-fly instead of upfront; saves RAM at the cost of slightly slower first epoch |
 

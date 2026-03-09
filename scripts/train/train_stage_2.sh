@@ -28,8 +28,8 @@ deepspeed llava/train/train_mem.py \
   --lora_dropout 0.00 \
   --mm_projector_lr 2e-5 \
   --version v1 \
-  --data_path ./dataset/data/instruction_stage2_19550.json \
-  --image_folder ./dataset/data/lumina_96k/data \
+  --hf_dataset pcvlab/lucid \
+  --hf_config stage2_qa \
   --vision_tower openai/clip-vit-large-patch14 \
   --mm_projector_type mlp2x_gelu \
   --mm_vision_select_layer -2 \

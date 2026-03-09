@@ -3,11 +3,10 @@
 # =============================================================================
 
 # Large data / model artifacts — never push these
-**/data/
+**/dataset/
 **/checkpoints/
 **/wandb/
 **/log/
-
 # Shell scripts are excluded by default (may contain machine-specific paths
 # or sensitive tokens); only the scripts listed below are tracked.
 **/**.sh

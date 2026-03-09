@@ -10,6 +10,7 @@ from typing import Any
 from tqdm import tqdm
 from collections import defaultdict
 from openai import OpenAI
+from datasets import load_dataset
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Judge prompt – do NOT modify this block
@@ -369,17 +370,16 @@ def main(args: argparse.Namespace) -> None:
 
     Args:
         args: Parsed CLI arguments (see ``__main__`` block for the full list).
+              Evaluation questions are loaded automatically from
+              ``args.hf_dataset`` (``evaluation`` config, ``test`` split).
     """
     client = OpenAI(api_key=args.api_key or os.environ["OPENAI_API_KEY"])
     judge_model = args.judge_model  # e.g. "gpt-4o"
 
-    # ── Load questions ────────────────────────────────────────────────────────
-    with open(args.question_file) as f:
-        question_data = json.load(f)
-
-    # Build a lookup: question_id -> question record
+    # ── Load evaluation questions from HuggingFace ────────────────────────────
+    eval_ds = load_dataset(args.hf_dataset, "evaluation", split="test")
     question_map: dict[str | int, dict[str, Any]] = {
-        q["question_id"]: q for q in question_data
+        sample["question_id"]: sample for sample in eval_ds
     }
 
     # ── Load all 5 model answer files ─────────────────────────────────────────
@@ -466,8 +466,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Blind multi-model evaluation using GPT-4 as judge (caption-only)."
     )
-    parser.add_argument("--question-file", required=True,
-                        help="JSON file with questions, types, and fig_captions.")
+    parser.add_argument("--hf-dataset", default="pcvlab/lucid",
+                        help="HuggingFace dataset repo ID used to load evaluation questions (default: pcvlab/lucid).")
     parser.add_argument("--LLaVA-LE-S1-answers", required=True, help="Answers file for LLaVA-LE stage 1 model.")
     parser.add_argument("--LLaVA-LE-S2-answers", required=True, help="Answers file for LLaVA-LE stage 2 model.")
     parser.add_argument("--GPT-TEXT-ONLY-answers", required=True, help="Answers file for GPT text-only.")

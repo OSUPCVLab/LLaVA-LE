@@ -4,6 +4,11 @@ This directory contains the end-to-end evaluation script for LLaVA-LE.
 
 ## Overview
 
+Evaluation questions and images are loaded automatically from the
+[pcvlab/lucid](https://huggingface.co/datasets/pcvlab/lucid) HuggingFace
+dataset (`evaluation` config, `test` split — 50 images, 190 questions).
+**No local question files or image folders are required.**
+
 The pipeline has two main stages:
 
 ### 1. Answer Generation — `llava/eval/model_vqa_lunar.py`
@@ -69,8 +74,7 @@ bash scripts/eval/run_eval.sh \
 | `--stage1-model-path` | `LLaVA-LE/checkpoints/stage_1/llava-v1.5-13b-task-lora-stage1_20260221_001701` | Stage 1 LoRA checkpoint |
 | `--stage2-model-path` | `LLaVA-LE/checkpoints/stage_2/llava-v1.5-13b-task-lora-stage2_20260225_221920` | Stage 2 LoRA checkpoint |
 | `--model-base` | `liuhaotian/llava-v1.5-13b` | Base model ID (HuggingFace or local) |
-| `--question-file` | `./dataset/data/lunar_eval_questions.json` | Evaluation question file |
-| `--image-folder` | `./dataset/data/lumina_96k/data` | Evaluation image directory |
+| `--hf-dataset` | `pcvlab/lucid` | HuggingFace dataset repo ID; evaluation questions and images are loaded from the `evaluation` / `test` split — no local files needed |
 | `--temperature` | `0.2` | Sampling temperature for generation |
 | `--conv-mode` | `vicuna_v1` | Conversation template |
 | `--output-dir` | `./eval_outputs` | Root output directory |

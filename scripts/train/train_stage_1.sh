@@ -12,8 +12,8 @@ deepspeed llava/train/train_mem.py \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path liuhaotian/llava-v1.5-13b \
     --version v1 \
-    --data_path ./dataset/data/alignment_stage1_76000.json \
-    --image_folder ./dataset/data/lumina_96k/data \
+    --hf_dataset pcvlab/lucid \
+    --hf_config stage1_captions \
     --vision_tower openai/clip-vit-large-patch14 \
     --mm_projector_type mlp2x_gelu \
     --mm_vision_select_layer -2 \

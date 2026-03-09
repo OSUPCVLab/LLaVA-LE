@@ -8,6 +8,8 @@
 #   3. Generate answers for base LLaVA   (no fine-tuning, vision baseline)
 #   4. Run caption_judge.py to score all models with a GPT judge
 #
+# Evaluation questions and images are streamed directly from the LUCID
+# HuggingFace dataset — no local data files are required.
 # GPT/Gemini text-only answer files must already exist before running step 4.
 # Pass --skip-generate to jump straight to the judge step.
 # =============================================================================
@@ -20,8 +22,7 @@ set -euo pipefail
 STAGE1_MODEL_PATH="LLaVA-LE/checkpoints/stage_1/llava-v1.5-13b-task-lora-stage1_20260221_001701"
 STAGE2_MODEL_PATH="LLaVA-LE/checkpoints/stage_2/llava-v1.5-13b-task-lora-stage2_20260225_221920"
 MODEL_BASE="liuhaotian/llava-v1.5-13b"
-QUESTION_FILE="./dataset/data/lunar_eval_questions.json"
-IMAGE_FOLDER="./dataset/data/lumina_96k/data"
+HF_DATASET="pcvlab/lucid"
 TEMPERATURE="0.2"
 CONV_MODE="vicuna_v1"
 OUTPUT_DIR="./eval_outputs"
@@ -48,11 +49,9 @@ Model paths:
   --model-base MODEL             HuggingFace base model ID or local path
                                  (default: ${MODEL_BASE})
 
-Data:
-  --question-file PATH           Evaluation question JSON file
-                                 (default: ${QUESTION_FILE})
-  --image-folder PATH            Folder containing evaluation images
-                                 (default: ${IMAGE_FOLDER})
+Dataset:
+  --hf-dataset REPO              HuggingFace dataset repo ID for evaluation questions and images
+                                 (default: ${HF_DATASET})
 
 Generation:
   --temperature FLOAT            Sampling temperature (default: ${TEMPERATURE})
@@ -81,8 +80,7 @@ while [[ $# -gt 0 ]]; do
         --stage1-model-path)          STAGE1_MODEL_PATH="$2";          shift 2 ;;
         --stage2-model-path)          STAGE2_MODEL_PATH="$2";          shift 2 ;;
         --model-base)                 MODEL_BASE="$2";                  shift 2 ;;
-        --question-file)              QUESTION_FILE="$2";               shift 2 ;;
-        --image-folder)               IMAGE_FOLDER="$2";                shift 2 ;;
+        --hf-dataset)                 HF_DATASET="$2";                  shift 2 ;;
         --temperature)                TEMPERATURE="$2";                 shift 2 ;;
         --conv-mode)                  CONV_MODE="$2";                   shift 2 ;;
         --output-dir)                 OUTPUT_DIR="$2";                  shift 2 ;;
@@ -121,8 +119,7 @@ if [[ "${SKIP_GENERATE}" == false ]]; then
     python llava/eval/model_vqa_lunar.py \
         --model-path    "${STAGE1_MODEL_PATH}" \
         --model-base    "${MODEL_BASE}" \
-        --question-file "${QUESTION_FILE}" \
-        --image-folder  "${IMAGE_FOLDER}" \
+        --hf-dataset    "${HF_DATASET}" \
         --answers-file  "${S1_ANSWERS}" \
         --conv-mode     "${CONV_MODE}" \
         --temperature   "${TEMPERATURE}"
@@ -131,8 +128,7 @@ if [[ "${SKIP_GENERATE}" == false ]]; then
     python llava/eval/model_vqa_lunar.py \
         --model-path    "${STAGE2_MODEL_PATH}" \
         --model-base    "${MODEL_BASE}" \
-        --question-file "${QUESTION_FILE}" \
-        --image-folder  "${IMAGE_FOLDER}" \
+        --hf-dataset    "${HF_DATASET}" \
         --answers-file  "${S2_ANSWERS}" \
         --conv-mode     "${CONV_MODE}" \
         --temperature   "${TEMPERATURE}"
@@ -140,8 +136,7 @@ if [[ "${SKIP_GENERATE}" == false ]]; then
     echo "=== [3/4] Generating base LLaVA answers ==="
     python llava/eval/model_vqa_lunar.py \
         --model-path    "${MODEL_BASE}" \
-        --question-file "${QUESTION_FILE}" \
-        --image-folder  "${IMAGE_FOLDER}" \
+        --hf-dataset    "${HF_DATASET}" \
         --answers-file  "${LLAVA_ANSWERS}" \
         --conv-mode     "${CONV_MODE}" \
         --temperature   "${TEMPERATURE}"
@@ -164,7 +159,7 @@ for f in "${S1_ANSWERS}" "${S2_ANSWERS}" "${LLAVA_ANSWERS}" \
 done
 
 python llava/eval/caption_judge.py \
-    --question-file             "${QUESTION_FILE}" \
+    --hf-dataset                "${HF_DATASET}" \
     --LLaVA-LE-S1-answers       "${S1_ANSWERS}" \
     --LLaVA-LE-S2-answers       "${S2_ANSWERS}" \
     --GPT-TEXT-ONLY-answers     "${GPT_TEXT_ONLY_ANSWERS}" \
