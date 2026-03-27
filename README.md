@@ -6,6 +6,7 @@
 
 ## Updates
 
+- **[2026-03-26] Paper on arXiv.** Our paper is now available: [LLaVA-LE: Large Language-and-Vision Assistant for Lunar Exploration](https://arxiv.org/abs/2603.24696).
 - **[2026-02-21] Codebase released.** The full training and evaluation code for LLaVA-LE is now publicly available in this repository.
 - **[2026-02-21] LUCID dataset on Hugging Face 🤗.** The LUCID dataset ([`pcvlab/lucid`](https://huggingface.co/datasets/pcvlab/lucid)) is publicly available and is directly integrated into this codebase — no local data files or image folders are required.
 
