@@ -1,6 +1,6 @@
 # LLaVA-LE: Large Language-and-Vision Assistant for Lunar Exploration
 
-**LLaVA-LE** is a domain-adapted vision-language model (VLM) for lunar surface analysis, built on top of [LLaVA-v1.5-13B](https://huggingface.co/liuhaotian/llava-v1.5-13b). It is fine-tuned in two stages using parameter-efficient LoRA adapters on the **LUCID** dataset — a curated collection of lunar imagery paired with descriptive captions (Stage 1) and instruction-following Q&A (Stage 2). LLaVA-LE enables detailed, grounded responses to natural-language questions about geological features, rock formations, crater morphology, and surface characteristics visible in lunar imagery.
+**LLaVA-LE** is a domain-adapted vision-language model (VLM) for lunar surface analysis, built on top of [LLaVA-v1.5-13B](https://huggingface.co/liuhaotian/llava-v1.5-13b). It is fine-tuned in two stages using parameter-efficient LoRA adapters on the **LUCID** dataset — a curated collection of lunar imagery paired with descriptive captions (Stage 1) and instruction-following Q&A (Stage 2). LLaVA-LE enables detailed, scientifically informed responses to natural-language questions about geological features, rock formations, crater morphology, and surface characteristics visible in lunar imagery.
 
 ---
 
@@ -142,13 +142,11 @@ For all available flags, see [scripts/eval/README.md](scripts/eval/README.md).
 If you use LLaVA-LE or the LUCID dataset in your work, please cite:
 
 ```bibtex
-@article{inal2025llavale,
-  title       = {LLaVA-LE: Large Language-and-Vision Assistant for Lunar Exploration},
-  author      = {Inal, Gokce and Navard, Pouyan and Yilmaz, Alper},
-  journal     = {arXiv preprint},
-  year        = {2025},
-  note        = {Under review},
-  institution = {The Ohio State University}
+@inproceedings{inal2026llavale,
+  title     = {LLaVA-LE: Large Language-and-Vision Assistant for Lunar Exploration},
+  author    = {Inal, Gokce and Navard, Pouyan and Yilmaz, Alper},
+  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops},
+  year      = {2026}
 }
 ```
 
