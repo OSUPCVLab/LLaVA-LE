@@ -1,0 +1,23 @@
+{
+  "id": "S14.700_E138.500",
+  "image_path": "data/S14.700_E138.500/pancro/r01_c04.png",
+  "caption": "Superposed small, sharp-rimmed craters on more subdued, overlapping depressions indicate a long history of impact modification and resurfacing. The scene is dominated by densely packed, mostly circular craters of varying degradation states, with no obvious large, fresh structures. Intercrater areas appear relatively smooth and gently undulating, suggesting broadly low relief with only modest local inclines along crater walls. The uniform cratered surface and lack of extensive ponded deposits may reflect mechanically coherent, relatively dense material at shallow depth.",
+  "qa": [
+    [
+      "What is the most noticeable feature in the scene?",
+      "The scene is dominated by densely packed, mostly circular craters of varying degradation states."
+    ],
+    [
+      "How do the small craters differ from the larger ones?",
+      "The small craters are sharp-rimmed and superposed on more subdued, overlapping depressions."
+    ],
+    [
+      "What does the smooth appearance of the intercrater areas suggest about the surface?",
+      "The intercrater areas appear relatively smooth and gently undulating, suggesting broadly low relief with modest local inclines along crater walls."
+    ],
+    [
+      "What can be inferred about the material beneath the surface?",
+      "The uniform cratered surface and lack of extensive ponded deposits may reflect mechanically coherent, relatively dense material at shallow depth."
+    ]
+  ]
+}

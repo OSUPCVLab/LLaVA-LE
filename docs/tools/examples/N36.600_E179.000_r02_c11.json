@@ -1,0 +1,27 @@
+{
+  "id": "N36.600_E179.000",
+  "image_path": "data/N36.600_E179.000/pancro/r02_c11.png",
+  "caption": "A fresh, sharply rimmed crater occupies the right-central part of the scene, superposed on a more densely cratered, relatively uniform surrounding surface. The continuous rim and deep interior shadow suggest relatively steep inner walls compared with the gentler relief of the adjacent terrain. The subdued texture and lack of prominent structural lineations in the surrounding area may reflect mechanically coherent material under thin regolith cover, consistent with relatively uniform subsurface density. The crisp superposition relations indicate that the central crater is among the youngest features in the frame.",
+  "qa": [
+    [
+      "What is the most noticeable feature in the scene?",
+      "A fresh, sharply rimmed crater in the right-central part of the scene."
+    ],
+    [
+      "How does the central crater compare to its surroundings?",
+      "The crater has steep inner walls and a sharp rim, while the surrounding surface is more gently sloped and densely cratered."
+    ],
+    [
+      "What can be inferred about the age of the central crater?",
+      "The central crater is one of the youngest features in the frame due to its crisp superposition relations."
+    ],
+    [
+      "What does the surrounding area's texture suggest about its subsurface?",
+      "The subdued texture and lack of prominent structural lineations suggest mechanically coherent material under thin regolith cover with relatively uniform subsurface density."
+    ],
+    [
+      "Why does the crater have a deep interior shadow?",
+      "The deep interior shadow indicates the crater's inner walls are relatively steep."
+    ]
+  ]
+}
