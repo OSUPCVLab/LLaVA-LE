@@ -142,11 +142,13 @@ For all available flags, see [scripts/eval/README.md](scripts/eval/README.md).
 If you use LLaVA-LE or the LUCID dataset in your work, please cite:
 
 ```bibtex
-@inproceedings{inal2026llavale,
-  title     = {LLaVA-LE: Large Language-and-Vision Assistant for Lunar Exploration},
-  author    = {Inal, Gokce and Navard, Pouyan and Yilmaz, Alper},
-  booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops},
-  year      = {2026}
+@InProceedings{Inal_2026_CVPR,
+    author    = {Inal, Gokce and Navard, Pouyan and Yilmaz, Alper},
+    title     = {LLaVA-LE: Large Language-and-Vision Assistant for Lunar Exploration},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops},
+    month     = {June},
+    year      = {2026},
+    pages     = {10251-10261}
 }
 ```
 
