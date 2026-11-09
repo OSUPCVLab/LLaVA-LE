@@ -1,0 +1,23 @@
+{
+  "id": "S03.900_E48.500",
+  "image_path": "data/S03.900_E48.500/pancro/r04_c01.png",
+  "caption": "The low crater density and generally smooth surface indicate a relatively young mare plain, with only a few small, sharp-rimmed craters superposed on older, subdued pits. Subtle linear to curvilinear ridges crossing the scene suggest contractional or flexural deformation of coherent basaltic flows, as indicated by their continuous, gently undulating traces. The scarcity of deeply incised crater walls implies modest relief, with crater interiors and rims showing only moderate steepness. This combination of smooth plains and broad ridges may reflect dense, mechanically strong volcanic fill overlying earlier basin structures.",
+  "qa": [
+    [
+      "What does the surface of this lunar region look like?",
+      "The surface is generally smooth with a low crater density."
+    ],
+    [
+      "Are there any particular features that stand out on this smooth surface?",
+      "Yes, there are a few small, sharp-rimmed craters superposed on older, subdued pits."
+    ],
+    [
+      "What do the ridges on the surface suggest about the geological processes involved?",
+      "The subtle linear to curvilinear ridges suggest contractional or flexural deformation of coherent basaltic flows."
+    ],
+    [
+      "What does the combination of smooth plains and ridges indicate about the underlying structure?",
+      "It may reflect dense, mechanically strong volcanic fill overlying earlier basin structures."
+    ]
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "examples": [
+    {
+      "json": "examples/N36.600_E179.000_r02_c11.json",
+      "caption_sentences": 2,
+      "qa_rounds": [2, 3],
+      "out": "../assets/demo_new/llava_le_demo_N36.600_E179.000_r02_c11.gif"
+    },
+    {
+      "json": "examples/S14.700_E138.500_r01_c04.json",
+      "caption_sentences": 2,
+      "qa_rounds": [2, 3],
+      "out": "../assets/demo_new/llava_le_demo_S14.700_E138.500_r01_c04.gif"
+    },
+    {
+      "json": "examples/S03.900_E48.500_r04_c01.json",
+      "caption_sentences": 2,
+      "qa_rounds": [2, 3],
+      "out": "../assets/demo_new/llava_le_demo_S03.900_E48.500_r04_c01.gif"
+    }
+  ]
+}
